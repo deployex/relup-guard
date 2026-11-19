@@ -8,8 +8,7 @@ defmodule RelupDemo.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      RelupDemo.Worker,
-      RelupDemo.Worker2
+      RelupDemo.Worker
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
