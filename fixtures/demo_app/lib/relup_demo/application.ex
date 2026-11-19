@@ -9,7 +9,8 @@ defmodule RelupDemo.Application do
   def start(_type, _args) do
     children = [
       RelupDemo.Worker,
-      RelupDemo.Worker2
+      RelupDemo.Worker2,
+      RelupDemo.StuckWorker
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

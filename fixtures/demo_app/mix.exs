@@ -4,7 +4,7 @@ defmodule RelupDemo.MixProject do
   def project do
     [
       app: :relup_demo,
-      version: "0.2.0",
+      version: "0.2.1",
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
