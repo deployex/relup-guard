@@ -9,9 +9,9 @@ inputs:
   old-ref:
     description: >
       Git ref/SHA to build as the "old" (currently deployed) release, e.g.
-      ${{ github.event.pull_request.base.sha }}. Must be reachable in the
-      checkout history, so the calling workflow needs actions/checkout with
-      fetch-depth: 0.
+      a pull request's base commit (github.event.pull_request.base.sha in
+      the calling workflow). Must be reachable in the checkout history, so
+      the calling workflow needs actions/checkout with fetch-depth: 0.
     required: true
   new-ref:
     description: "Git ref/SHA to build as the new release being tested."
@@ -77,6 +77,14 @@ outputs:
   new-version:
     description: "The version built from new-ref."
     value: ${{ steps.build-new.outputs.version }}
+  had-warnings:
+    description: >
+      "true" if the upgrade succeeded but systools reported relup
+      warnings, or the unstarted-module check fired - "false" otherwise.
+      Useful for asserting on the warning path without depending on
+      $GITHUB_STEP_SUMMARY, which is scoped to the step that wrote it and
+      can't be read back by a later, separate step.
+    value: ${{ steps.run-upgrade.outputs.had-warnings }}
 
 runs:
   using: "composite"

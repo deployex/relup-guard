@@ -139,6 +139,7 @@ If the schema needs to exist before the release will boot (rather than being cre
 |---|---|
 | `old-version` | The version string built from `old-ref`. |
 | `new-version` | The version string built from `new-ref`. |
+| `had-warnings` | `"true"` if the upgrade succeeded but raised a relup warning (see step 6 below), `"false"` otherwise. |
 
 ## How it works
 
@@ -163,7 +164,7 @@ If the schema needs to exist before the release will boot (rather than being cre
 9. **Confirm the OS process never restarted**, by comparing the node's OS pid before and after.
    The entire point of a hot upgrade is that the running process survives it; `which_releases/0` alone can't tell a genuine in-place code swap from a disguised full restart (a stray `restart_new_emulator` instruction, or an init system quietly restarting a crashed node) that happens to land on the right version anyway.
 10. **Stop the node** and report pass/fail.
-11. **Write old-version, new-version, and the result to the job's Summary tab**, via `$GITHUB_STEP_SUMMARY` - the same convention `actions/cache` and other popular actions use so the outcome is visible at a glance without opening step logs, even when an earlier step failed first.
+11. **Write old-version, new-version, and the result to the job's Summary tab**, via `$GITHUB_STEP_SUMMARY` - the same convention `actions/cache` and other popular actions use so the outcome is visible at a glance without opening step logs, even when an earlier step failed first. `$GITHUB_STEP_SUMMARY` is scoped to the step that writes it, though: a later step in the calling workflow can't read this content back through that same env var, even within the same job - use the `had-warnings` output instead for that.
     A success with `fail-on-relup-warnings` left false but a warning raised anyway shows as its own distinct "⚠️ succeeded, with warnings" result, not an indistinguishable plain "✅" - otherwise the summary's whole point (visible at a glance) would fail silently for exactly the runs it matters most for.
 
 ## What this does not do (yet)
