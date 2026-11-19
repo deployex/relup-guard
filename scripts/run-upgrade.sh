@@ -181,7 +181,7 @@ try do
       # child needs its own :apply instruction (e.g. supervisor:start_child)
       # in the same upgrade script - load/load_object_code only loads code,
       # it never starts anything. A newly-loaded module with no :apply
-      # anywhere in the script is indistinguishable, from relup-guard's
+      # anywhere in the script is indistinguishable, from relup-guard-elixir's
       # position, between "a new non-process module that needs nothing
       # more" (safe) and "a new supervised child whose appup generator
       # never emitted the apply to actually start it" (not safe).

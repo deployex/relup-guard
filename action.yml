@@ -1,4 +1,4 @@
-name: "relup-guard"
+name: "relup-guard-elixir"
 description: "Verifies a BEAM hot code upgrade (relup) actually works, by building the old and new release and running a real unpack/install/upgrade against a live node."
 author: "Thiago Esteves"
 branding:
@@ -58,7 +58,7 @@ inputs:
     default: "60"
   fail-on-relup-warnings:
     description: >
-      Treat warnings from systools:make_relup/4, and relup-guard's own
+      Treat warnings from systools:make_relup/4, and relup-guard-elixir's own
       "module loaded but possibly never started" check, as failures (the
       same "warnings as errors" policy many build/lint tools offer),
       rather than only annotating them. A relup can report warnings - most
@@ -100,7 +100,7 @@ runs:
       if: runner.os == 'Windows'
       shell: bash
       run: |
-        echo "::error title=Unsupported runner OS::relup-guard drives a Mix release through its daemon/pid/stop/rpc boot-script commands, which only exist on the Unix-like release layout - Mix builds a separate, admin-only Windows-service release instead. Run this action on a Linux or macOS runner."
+        echo "::error title=Unsupported runner OS::relup-guard-elixir drives a Mix release through its daemon/pid/stop/rpc boot-script commands, which only exist on the Unix-like release layout - Mix builds a separate, admin-only Windows-service release instead. Run this action on a Linux or macOS runner."
         exit 1
 
     # Resolves both refs to concrete SHAs against the pristine checkout

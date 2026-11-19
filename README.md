@@ -1,4 +1,4 @@
-# relup-guard
+# relup-guard-elixir
 
 CI action that verifies Erlang/Elixir hot code upgrades actually work, by building old and new releases and running a real relup before you merge.
 
@@ -7,21 +7,21 @@ CI action that verifies Erlang/Elixir hot code upgrades actually work, by buildi
 A release can build cleanly and still fail to hot-upgrade: a missing appup, a `code_change/3` that doesn't match the new state shape, a dependency bump with no upgrade instructions.
 Most CI pipelines only check that a release *builds*.
 They never check that an upgrade into it actually *applies* against a live node.
-`relup-guard` closes that gap: it builds the release at your PR's base ref and at its head in the same working directory (so Mix appup tooling can see both), boots the old release, and drives the same sequence a real deploy does - unpack, synthesize the relup, `check_install_release`, `install_release`, `make_permanent` - against it.
+`relup-guard-elixir` closes that gap: it builds the release at your PR's base ref and at its head in the same working directory (so Mix appup tooling can see both), boots the old release, and drives the same sequence a real deploy does - unpack, synthesize the relup, `check_install_release`, `install_release`, `make_permanent` - against it.
 If any step fails, the PR fails, before the broken upgrade ever reaches production.
 
 ## Prerequisites
 
-Your project needs the following already in place; `relup-guard` does not set any of it up for you.
+Your project needs the following already in place; `relup-guard-elixir` does not set any of it up for you.
 
-- A `mix release` whose `:steps` include `:tar` plus a step that does two things: generate `.appup` files, and copy the assembled `.rel` file into a flat `releases/<name>-<vsn>.rel` (not the nested `releases/<vsn>/<name>.rel` a plain `mix release` already produces on its own). `release_handler:unpack_release/1` specifically needs that flat copy to exist - without it, unpacking the new release fails outright, regardless of whether the `.appup` files themselves are fine. [Jellyfish](https://hex.pm/packages/jellyfish)'s `&Jellyfish.generate/1` does both and is what this project's own fixture and self-test use - but Jellyfish itself isn't required, as long as whatever tool you use does the same flat-copy. It does not produce a `relup`; `relup-guard` synthesizes that itself at upgrade time, the same way a real deploy does.
+- A `mix release` whose `:steps` include `:tar` plus a step that does two things: generate `.appup` files, and copy the assembled `.rel` file into a flat `releases/<name>-<vsn>.rel` (not the nested `releases/<vsn>/<name>.rel` a plain `mix release` already produces on its own). `release_handler:unpack_release/1` specifically needs that flat copy to exist - without it, unpacking the new release fails outright, regardless of whether the `.appup` files themselves are fine. [Jellyfish](https://hex.pm/packages/jellyfish)'s `&Jellyfish.generate/1` does both and is what this project's own fixture and self-test use - but Jellyfish itself isn't required, as long as whatever tool you use does the same flat-copy. It does not produce a `relup`; `relup-guard-elixir` synthesizes that itself at upgrade time, the same way a real deploy does.
 - The `:sasl` application included in the release, since `release_handler` lives there.
 - The calling workflow must check out the repository with `fetch-depth: 0`, so both `old-ref` and `new-ref` are reachable as git history.
 - The calling workflow must set up the Erlang/Elixir toolchain itself (e.g. with `erlef/setup-beam`), matching whatever `.tool-versions` or version pins your project uses.
 - A Linux or macOS runner (e.g. `ubuntu-24.04`).
-  Mix releases only support daemon/pid/rpc boot-script commands on Unix; Windows releases use a separate, admin-only service mode with none of them, so `relup-guard` fails fast with an explanation rather than running on `windows-*`.
+  Mix releases only support daemon/pid/rpc boot-script commands on Unix; Windows releases use a separate, admin-only service mode with none of them, so `relup-guard-elixir` fails fast with an explanation rather than running on `windows-*`.
 
-`relup-guard` checks out `old-ref` and then `new-ref` in place, in the job's own working directory, so it leaves the checkout on `new-ref` when it finishes.
+`relup-guard-elixir` checks out `old-ref` and then `new-ref` in place, in the job's own working directory, so it leaves the checkout on `new-ref` when it finishes.
 Run it as its own job, or as the last step in a job, rather than before other steps that assume the original checkout is untouched.
 
 ## Usage
@@ -34,7 +34,7 @@ on:
     branches: [main]
 
 jobs:
-  relup-guard:
+  relup-guard-elixir:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -46,7 +46,7 @@ jobs:
           version-file: .tool-versions
           version-type: strict
 
-      - uses: deployex/relup-guard@v1
+      - uses: deployex/relup-guard-elixir@v1
         with:
           old-ref: ${{ github.event.pull_request.base.sha }}
           release-name: my_app
@@ -58,11 +58,11 @@ If you'd rather not depend on that - a tag you don't control being trustworthy f
 
 ### Booting a release that needs environment variables
 
-If your release reads `System.get_env/1` in `config/runtime.exs` (database URL, secret key base, etc.), set those as `env` on the step that calls `relup-guard`, not as an `with:` input.
-Composite action steps run inside the same job as the step that calls them, so any `env:` set there is inherited by every step inside `relup-guard`, including the one that actually boots the release:
+If your release reads `System.get_env/1` in `config/runtime.exs` (database URL, secret key base, etc.), set those as `env` on the step that calls `relup-guard-elixir`, not as an `with:` input.
+Composite action steps run inside the same job as the step that calls them, so any `env:` set there is inherited by every step inside `relup-guard-elixir`, including the one that actually boots the release:
 
 ```yaml
-- uses: deployex/relup-guard@v1
+- uses: deployex/relup-guard-elixir@v1
   env:
     DATABASE_URL: ecto://postgres:postgres@localhost/my_app_test
     SECRET_KEY_BASE: ${{ secrets.SECRET_KEY_BASE }}
@@ -74,18 +74,18 @@ Composite action steps run inside the same job as the step that calls them, so a
 A few things this doesn't cover:
 
 - If `runtime.exs` checks out a real dependency, such as a database, that dependency has to actually be reachable in the job (e.g. a `services:` container), the same as it would for any other test job.
-- `relup-guard` sets `RELEASE_COOKIE`, `RELEASE_NODE`, and `RELEASE_DISTRIBUTION` itself, to boot the old release under a node name and cookie unique to that run - not just on a single runner, but across two concurrent jobs sharing the same self-hosted runner, where a fixed node name would otherwise let one job's RPCs land on the other job's node. If your own `runtime.exs` reads any of those three specifically, treat them as reserved - whatever you set will be overridden.
+- `relup-guard-elixir` sets `RELEASE_COOKIE`, `RELEASE_NODE`, and `RELEASE_DISTRIBUTION` itself, to boot the old release under a node name and cookie unique to that run - not just on a single runner, but across two concurrent jobs sharing the same self-hosted runner, where a fixed node name would otherwise let one job's RPCs land on the other job's node. If your own `runtime.exs` reads any of those three specifically, treat them as reserved - whatever you set will be overridden.
 - It also appends `-kernel inet_dist_use_interface {127,0,0,1}` to the extracted release's `vm.args`/`remote.vm.args`, restricting its Erlang distribution listener to loopback. This matters most on a self-hosted runner reachable on a wider network: without it, Erlang distribution binds to every interface by default regardless of the node name's own hostname, leaving a short-lived window where the test node is reachable network-wide, guarded only by a cookie that (unlike a real production one) is just a timestamp and pid.
-- If the upgrade itself raises - inside `unpack_release`/`make_relup`/`install_release`, or inside anything an `apply` instruction invokes as part of applying it, such as a newly-started child's `start_link` - `relup-guard` prints the raw Erlang/Elixir crash term to the job log so the actual cause is visible, and that term can contain whatever value was in scope at the point of the crash. That's a problem if the value is a secret your own code fetched at runtime (e.g. from a secrets manager, via a config provider pattern) rather than one that came in through this step's own `env:`. GitHub automatically masks values it already knows are secrets - the ones passed through its own `secrets:` context - but it has no way to know about a value your application fetched on its own, so that one can't be auto-masked by default. If that's a real risk for your release, mask it yourself in the calling workflow: GitHub's `::add-mask::` command (`echo "::add-mask::$THE_VALUE"`) matches by value wherever it later appears in the log, including from inside a nested crash dump this step prints. This specifically does not apply to the old release simply failing to boot in the first place - that path only ever reports a generic timeout, with no crash detail to leak.
+- If the upgrade itself raises - inside `unpack_release`/`make_relup`/`install_release`, or inside anything an `apply` instruction invokes as part of applying it, such as a newly-started child's `start_link` - `relup-guard-elixir` prints the raw Erlang/Elixir crash term to the job log so the actual cause is visible, and that term can contain whatever value was in scope at the point of the crash. That's a problem if the value is a secret your own code fetched at runtime (e.g. from a secrets manager, via a config provider pattern) rather than one that came in through this step's own `env:`. GitHub automatically masks values it already knows are secrets - the ones passed through its own `secrets:` context - but it has no way to know about a value your application fetched on its own, so that one can't be auto-masked by default. If that's a real risk for your release, mask it yourself in the calling workflow: GitHub's `::add-mask::` command (`echo "::add-mask::$THE_VALUE"`) matches by value wherever it later appears in the log, including from inside a nested crash dump this step prints. This specifically does not apply to the old release simply failing to boot in the first place - that path only ever reports a generic timeout, with no crash detail to leak.
 
 ### Booting a release that needs a database
 
-If the release starts an `Ecto.Repo` (or anything else that connects out on boot), the old release simply won't come up without that dependency reachable, and `relup-guard` will time out with a generic "did not boot" error rather than the real cause.
+If the release starts an `Ecto.Repo` (or anything else that connects out on boot), the old release simply won't come up without that dependency reachable, and `relup-guard-elixir` will time out with a generic "did not boot" error rather than the real cause.
 This is the same problem as running `mix test` in CI, and it has the same fix: add the dependency as a `services:` container on the job, and point the release at it with `env:`.
 
 ```yaml
 jobs:
-  relup-guard:
+  relup-guard-elixir:
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -108,7 +108,7 @@ jobs:
           version-file: .tool-versions
           version-type: strict
 
-      - uses: deployex/relup-guard@v1
+      - uses: deployex/relup-guard-elixir@v1
         env:
           DATABASE_URL: ecto://postgres:postgres@localhost:5432/my_app
         with:
@@ -116,8 +116,8 @@ jobs:
           release-name: my_app
 ```
 
-If the schema needs to exist before the release will boot (rather than being created by the release itself on startup), run migrations against that database as a step before `relup-guard`, the same way you would before a normal integration test job.
-`relup-guard` has no opinion on this either way - it boots whatever `bin/<name> daemon` boots, exactly as a real deploy would.
+If the schema needs to exist before the release will boot (rather than being created by the release itself on startup), run migrations against that database as a step before `relup-guard-elixir`, the same way you would before a normal integration test job.
+`relup-guard-elixir` has no opinion on this either way - it boots whatever `bin/<name> daemon` boots, exactly as a real deploy would.
 
 ### Inputs
 
@@ -131,7 +131,7 @@ If the schema needs to exist before the release will boot (rather than being cre
 | `build-command` | no | `mix deps.get && mix release` | Command run to produce the release tarball, once per ref, in `working-directory`. |
 | `boot-timeout-seconds` | no | `30` | How long to wait for the old release to boot before failing. Must be a non-negative integer - anything else fails fast with a clear error instead of being silently misread. |
 | `upgrade-timeout-seconds` | no | `60` | How long to wait for the unpack/make_relup/install/make_permanent sequence to finish before treating it as hung and failing fast, rather than relying on the calling job's own timeout. Must be a non-negative integer - anything else fails fast with a clear error instead of being silently misread. |
-| `fail-on-relup-warnings` | no | `false` | Treat `systools:make_relup/4` warnings, and relup-guard's own "module loaded but possibly never started" check, as failures instead of only annotating them with `::warning::`. |
+| `fail-on-relup-warnings` | no | `false` | Treat `systools:make_relup/4` warnings, and relup-guard-elixir's own "module loaded but possibly never started" check, as failures instead of only annotating them with `::warning::`. |
 
 ### Outputs
 
@@ -155,7 +155,7 @@ If the schema needs to exist before the release will boot (rather than being cre
 6. **Synthesize the relup** via `systools:make_relup/4`, now that both versions' `.rel` files and the new version's `.appup` files coexist on that node - this is the step most naive "does it build" checks skip entirely.
    Any warnings `systools` returns (not just its errors) are surfaced as a `::warning::` annotation rather than silently discarded - a relup that "succeeds" with warnings often means `systools` fell back to a cruder instruction than intended, such as reloading everything for a dependency that bumped version with no `.appup` of its own.
    Set `fail-on-relup-warnings: true` to turn that `::warning::` into a build failure instead, the same "warnings as errors" choice many build and lint tools offer.
-   Separately, relup-guard also checks the relup for modules that get loaded but never started: if the new version introduces a module this node didn't have loaded before, and the upgrade script has no `apply` instruction anywhere, that's surfaced the same way (and controlled by the same `fail-on-relup-warnings` flag).
+   Separately, relup-guard-elixir also checks the relup for modules that get loaded but never started: if the new version introduces a module this node didn't have loaded before, and the upgrade script has no `apply` instruction anywhere, that's surfaced the same way (and controlled by the same `fail-on-relup-warnings` flag).
    This is a real gap in auto-generated appups, not a hypothetical one: a module *loading* successfully says nothing about whether it was wired into a supervisor, because `load`/`load_object_code` only load code - starting a new supervised child needs its own explicit `apply` instruction (e.g. `supervisor:start_child`), per the OTP appup cookbook's documented pattern for this exact case.
    A module flagged this way is not necessarily a bug - plenty of new modules aren't processes that need starting - so this stays a warning by default rather than a failure.
 7. **Apply it for real, bounded by `upgrade-timeout-seconds`**: `release_handler:check_install_release/1`, `release_handler:install_release/2`, then `release_handler:make_permanent/1`.
@@ -187,7 +187,7 @@ If the schema needs to exist before the release will boot (rather than being cre
 
 `fixtures/demo_app` is a minimal Mix release: one GenServer (`RelupDemo.Worker`) with a `code_change/3` that migrates its state shape, plus a second supervisor child (`RelupDemo.Worker2`) with no corresponding appup `apply` instruction, specifically to exercise the "unstarted module" check.
 
-`.github/workflows/ci.yml` runs `relup-guard` against itself on every push:
+`.github/workflows/ci.yml` runs `relup-guard-elixir` against itself on every push:
 
 - The main self-test job, and two more exercising `new-ref`'s documented default and a deterministic `boot-timeout-seconds: "0"` failure, build from a dedicated `fixtures/baseline` branch (an earlier state of `fixtures/demo_app`, without `Worker2`) against the current commit.
 - Two more jobs exercise the "unstarted module" check from that same pair, covering both directions of `fail-on-relup-warnings`: one confirms the default (`false`) still succeeds with just the `::warning::`, the other confirms `true` turns that same warning into a failure.
