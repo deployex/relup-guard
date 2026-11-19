@@ -1,0 +1,193 @@
+name: "relup-guard"
+description: "Verifies a BEAM hot code upgrade (relup) actually works, by building the old and new release and running a real unpack/install/upgrade against a live node."
+author: "Thiago Esteves"
+branding:
+  icon: "refresh-cw"
+  color: "green"
+
+inputs:
+  old-ref:
+    description: >
+      Git ref/SHA to build as the "old" (currently deployed) release, e.g.
+      ${{ github.event.pull_request.base.sha }}. Must be reachable in the
+      checkout history, so the calling workflow needs actions/checkout with
+      fetch-depth: 0.
+    required: true
+  new-ref:
+    description: "Git ref/SHA to build as the new release being tested."
+    required: false
+    default: "HEAD"
+  release-name:
+    description: >
+      The release name as configured in mix.exs under releases[...], e.g.
+      "my_app".
+    required: true
+  mix-env:
+    description: "MIX_ENV used to build both releases."
+    required: false
+    default: "prod"
+  working-directory:
+    description: >
+      Directory containing the mix.exs that defines the release, relative
+      to the repository root. Use this when the release isn't built from
+      the repository root (e.g. one app of an umbrella).
+    required: false
+    default: "."
+  build-command:
+    description: >
+      Shell command used to build the release, run once per ref in the same
+      working directory. Must leave a tarball at
+      _build/<mix-env>/<release-name>-<version>.tar.gz, which means the
+      release's :steps must include :tar plus a step that generates
+      .appup files AND copies the .rel file into a flat
+      releases/<name>-<vsn>.rel (e.g. &Jellyfish.generate/1) -
+      release_handler:unpack_release/1 needs that exact flat file, which
+      a plain mix release does not produce on its own.
+    required: false
+    default: "mix deps.get && mix release"
+  boot-timeout-seconds:
+    description: "How long to wait for the old release to boot before giving up."
+    required: false
+    default: "30"
+  upgrade-timeout-seconds:
+    description: >
+      How long to wait for the unpack/make_relup/install/make_permanent
+      sequence to finish before treating it as hung and failing fast,
+      instead of relying on the calling job's own timeout.
+    required: false
+    default: "60"
+  fail-on-relup-warnings:
+    description: >
+      Treat warnings from systools:make_relup/4, and relup-guard's own
+      "module loaded but possibly never started" check, as failures (the
+      same "warnings as errors" policy many build/lint tools offer),
+      rather than only annotating them. A relup can report warnings - most
+      often a dependency that bumped version with no .appup of its own, so
+      systools fell back to a cruder upgrade instruction than intended -
+      or load a newly-introduced module with no apply instruction anywhere
+      to actually start it as a process, while still technically
+      succeeding either way.
+    required: false
+    default: "false"
+
+outputs:
+  old-version:
+    description: "The version built from old-ref."
+    value: ${{ steps.build-old.outputs.version }}
+  new-version:
+    description: "The version built from new-ref."
+    value: ${{ steps.build-new.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    # Fails fast with a clear reason instead of a confusing error several
+    # minutes into the build. run-upgrade.sh drives the release through
+    # `bin/<name> daemon`, `pid`, `stop`, and `rpc` - all Unix-only Mix
+    # release boot script commands (daemon mode works "via run_erl" and is
+    # explicitly Unix-like only, per the "mix release" docs). A Windows
+    # release uses a completely different, admin-only Windows-service mode
+    # instead, so none of those commands would even exist on one.
+    - name: Check runner OS
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        echo "::error title=Unsupported runner OS::relup-guard drives a Mix release through its daemon/pid/stop/rpc boot-script commands, which only exist on the Unix-like release layout - Mix builds a separate, admin-only Windows-service release instead. Run this action on a Linux or macOS runner."
+        exit 1
+
+    # Resolves both refs to concrete SHAs against the pristine checkout
+    # the calling workflow set up, BEFORE anything moves the working tree.
+    # This matters for new-ref's own documented default of "HEAD": once
+    # old-ref has been checked out below, the literal string "HEAD" no
+    # longer means "the commit the job originally checked out" - it means
+    # "whatever we're currently sitting on", which by then is old-ref
+    # itself.
+    - name: Resolve old-ref and new-ref
+      id: resolve-refs
+      shell: bash
+      env:
+        OLD_REF: ${{ inputs.old-ref }}
+        NEW_REF: ${{ inputs.new-ref }}
+      run: '"${{ github.action_path }}/scripts/resolve-refs.sh" "$OLD_REF" "$NEW_REF"'
+
+    # old-ref and new-ref are built sequentially in the same working
+    # directory/_build (not isolated worktrees): Mix appup tooling such as
+    # Jellyfish finds the "previous version" to diff against by looking
+    # inside the same _build/<env>/rel/<name>/releases/ tree a prior build
+    # already populated, not from git history directly.
+    #
+    # Every input/output used below is passed through env: and read back as
+    # a shell variable rather than interpolated straight into `run:`.
+    # A ${{ }} expression substituted directly into a run: script is
+    # attacker-controlled template injection if any caller ever feeds it a
+    # value derived from PR content (title, branch name, label, etc.) -
+    # GitHub's own security hardening guide for Actions calls this out
+    # explicitly, and it is the single most common finding tools like
+    # zizmor flag in composite actions. github.action_path is a
+    # runner-provided, non-attacker-controlled context, so it is exempt.
+    - name: Build old release (${{ inputs.old-ref }})
+      id: build-old
+      shell: bash
+      env:
+        REF: ${{ steps.resolve-refs.outputs.old-sha }}
+        RELEASE_NAME: ${{ inputs.release-name }}
+        MIX_ENV_VALUE: ${{ inputs.mix-env }}
+        BUILD_COMMAND: ${{ inputs.build-command }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: '"${{ github.action_path }}/scripts/build-release.sh" "$REF" "$RELEASE_NAME" "$MIX_ENV_VALUE" "$BUILD_COMMAND" "" "$WORKING_DIRECTORY"'
+
+    - name: Build new release (${{ inputs.new-ref }})
+      id: build-new
+      shell: bash
+      env:
+        REF: ${{ steps.resolve-refs.outputs.new-sha }}
+        RELEASE_NAME: ${{ inputs.release-name }}
+        MIX_ENV_VALUE: ${{ inputs.mix-env }}
+        BUILD_COMMAND: ${{ inputs.build-command }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        EXCLUDE_TARBALL: ${{ steps.build-old.outputs.tarball }}
+      run: '"${{ github.action_path }}/scripts/build-release.sh" "$REF" "$RELEASE_NAME" "$MIX_ENV_VALUE" "$BUILD_COMMAND" "$EXCLUDE_TARBALL" "$WORKING_DIRECTORY"'
+
+    - name: Check old-ref and new-ref actually differ
+      shell: bash
+      env:
+        OLD_VERSION: ${{ steps.build-old.outputs.version }}
+        NEW_VERSION: ${{ steps.build-new.outputs.version }}
+      run: |
+        if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+          echo "::error title=old-ref and new-ref produced the same version::Both resolved to ${NEW_VERSION}. Bump the release version so a relup can be generated and tested."
+          exit 1
+        fi
+
+    - name: Run the upgrade for real
+      id: run-upgrade
+      shell: bash
+      env:
+        RELEASE_NAME: ${{ inputs.release-name }}
+        OLD_TARBALL: ${{ steps.build-old.outputs.tarball }}
+        NEW_TARBALL: ${{ steps.build-new.outputs.tarball }}
+        OLD_VERSION: ${{ steps.build-old.outputs.version }}
+        NEW_VERSION: ${{ steps.build-new.outputs.version }}
+        BOOT_TIMEOUT_SECONDS: ${{ inputs.boot-timeout-seconds }}
+        UPGRADE_TIMEOUT_SECONDS: ${{ inputs.upgrade-timeout-seconds }}
+        FAIL_ON_WARNINGS: ${{ inputs.fail-on-relup-warnings }}
+      run: '"${{ github.action_path }}/scripts/run-upgrade.sh" "$RELEASE_NAME" "$OLD_TARBALL" "$NEW_TARBALL" "$OLD_VERSION" "$NEW_VERSION" "$BOOT_TIMEOUT_SECONDS" "$UPGRADE_TIMEOUT_SECONDS" "$FAIL_ON_WARNINGS"'
+
+    # Writes a human-readable result to the job's own Summary tab, the same
+    # convention actions/cache and many other popular actions follow via
+    # $GITHUB_STEP_SUMMARY - so old-version/new-version/pass-fail are visible
+    # at a glance without opening raw step logs. Runs with always() and
+    # guards every value, since a failure in an earlier step must still
+    # produce a summary (showing what's known and that it failed), and must
+    # never itself mask that failure by erroring out.
+    - name: Write job summary
+      if: always()
+      shell: bash
+      env:
+        OLD_REF: ${{ inputs.old-ref }}
+        NEW_REF: ${{ inputs.new-ref }}
+        OLD_VERSION: ${{ steps.build-old.outputs.version }}
+        NEW_VERSION: ${{ steps.build-new.outputs.version }}
+        OUTCOME: ${{ steps.run-upgrade.outcome }}
+        HAD_WARNINGS: ${{ steps.run-upgrade.outputs.had-warnings }}
+      run: '"${{ github.action_path }}/scripts/write-summary.sh" "$OLD_REF" "$NEW_REF" "$OLD_VERSION" "$NEW_VERSION" "$OUTCOME" "$HAD_WARNINGS"'

@@ -1,0 +1,290 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck scripts/*.sh
+
+  self-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Elixir 1.20.5 against both OTP lines it actually runs on, not
+        # just the one it happened to be compiled with.
+        otp-version: ["28", "29"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp-version }}
+          elixir-version: "1.20.5"
+
+      - uses: ./
+        with:
+          old-ref: c8b52d45241eb66d680a41c999e591e275fb0068
+          new-ref: ${{ github.sha }}
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+
+  # new-ref's own documented default is "HEAD". This job exercises that
+  # default directly (by omitting new-ref), rather than only ever passing
+  # it explicitly the way the job above does.
+  self-test-default-new-ref:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.5"
+
+      - uses: ./
+        with:
+          old-ref: c8b52d45241eb66d680a41c999e591e275fb0068
+          # new-ref deliberately omitted - relying on the documented default.
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+
+  # Every job above only ever asserts success. old-ref and new-ref
+  # identical can't possibly produce two different versions to relup
+  # between, so relup-guard must refuse to proceed - asserted here with
+  # continue-on-error plus a follow-up step that fails the job if it
+  # unexpectedly didn't.
+  self-test-identical-refs-fail:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.5"
+
+      - name: relup-guard (expected to fail - old-ref and new-ref are identical)
+        id: relup-guard
+        continue-on-error: true
+        uses: ./
+        with:
+          old-ref: ${{ github.sha }}
+          new-ref: ${{ github.sha }}
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+
+      - name: Assert it actually failed
+        if: steps.relup-guard.outcome != 'failure'
+        run: |
+          echo "::error::relup-guard was expected to fail (old-ref and new-ref are identical, so there's no second version to relup against), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          exit 1
+
+  # Another negative test: an unresolvable ref (most commonly a checkout
+  # missing fetch-depth: 0) must fail with a clear reason naming the
+  # actual cause. No erlef/setup-beam here on purpose - ref resolution
+  # happens in plain git, before anything Erlang-related runs, so this
+  # failure mode doesn't need a BEAM toolchain to exercise or to stay fast.
+  self-test-unresolvable-ref-fails:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: relup-guard (expected to fail - old-ref does not exist)
+        id: relup-guard
+        continue-on-error: true
+        uses: ./
+        with:
+          old-ref: this-ref-does-not-exist-anywhere
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+
+      - name: Assert it actually failed
+        if: steps.relup-guard.outcome != 'failure'
+        run: |
+          echo "::error::relup-guard was expected to fail (old-ref doesn't resolve to any commit), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          exit 1
+
+  # boot-timeout-seconds: "0" is a deterministic way to force this
+  # failure, not a flaky race against how fast the runner happens to boot
+  # the release: the wait loop is `for ((i = 1; i <= BOOT_TIMEOUT; i++))`,
+  # so BOOT_TIMEOUT=0 makes that loop's own condition (1 <= 0) false
+  # before its first iteration - guaranteed to never check the pid even
+  # once, regardless of actual boot speed.
+  self-test-boot-timeout-fails:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.5"
+
+      - name: relup-guard (expected to fail - boot-timeout-seconds is 0)
+        id: relup-guard
+        continue-on-error: true
+        uses: ./
+        with:
+          old-ref: c8b52d45241eb66d680a41c999e591e275fb0068
+          new-ref: ${{ github.sha }}
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+          boot-timeout-seconds: "0"
+
+      - name: Assert it actually failed
+        if: steps.relup-guard.outcome != 'failure'
+        run: |
+          echo "::error::relup-guard was expected to fail (boot-timeout-seconds: 0 can never observe the release boot in time), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          exit 1
+
+  # fixtures/demo_app's RelupDemo.Worker2 is a second supervisor child
+  # with no corresponding appup apply instruction, deliberately, to let
+  # CI exercise the "relup loads a module but never starts it" check for
+  # real. Two jobs, covering both directions of fail-on-relup-warnings:
+  self-test-unstarted-module-warns:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.5"
+
+      - uses: ./
+        with:
+          old-ref: c8b52d45241eb66d680a41c999e591e275fb0068 # Worker2 does not exist yet
+          new-ref: ${{ github.sha }} # Worker2 added with no apply instruction
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+          # fail-on-relup-warnings left at its default (false): this
+          # must still succeed, with the warning only annotated.
+
+      # A success here with a warning raised anyway must render as its
+      # own distinct result in the job summary, not an indistinguishable
+      # plain "succeeded" - the whole reason that output exists is being
+      # visible at a glance without opening step logs. Checks the
+      # rendered summary file directly rather than trusting the earlier
+      # step's own exit code alone, since this step passing is exactly
+      # what a regression here would still do.
+      - name: Assert the summary shows the warning, not a plain success
+        run: |
+          if ! grep -q "succeeded, with warnings" "$GITHUB_STEP_SUMMARY"; then
+            echo "::error::Expected the job summary to show a distinct 'succeeded, with warnings' result for this run (old-ref/new-ref deliberately differ only by an unstarted supervised child), but it didn't:"
+            cat "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  self-test-unstarted-module-fails-when-strict:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.5"
+
+      - name: relup-guard (expected to fail - fail-on-relup-warnings is true)
+        id: relup-guard
+        continue-on-error: true
+        uses: ./
+        with:
+          old-ref: c8b52d45241eb66d680a41c999e591e275fb0068
+          new-ref: ${{ github.sha }}
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+          fail-on-relup-warnings: "true"
+
+      - name: Assert it actually failed
+        if: steps.relup-guard.outcome != 'failure'
+        run: |
+          echo "::error::relup-guard was expected to fail (fail-on-relup-warnings: true turns the unstarted-module warning into a failure), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          exit 1
+
+  # upgrade-timeout-seconds has no input-value trick like
+  # boot-timeout-seconds' "0" - GNU timeout(1) treats a duration of 0 as
+  # "no timeout" rather than an immediate one, the opposite of what a
+  # deterministic failure needs. Forcing this one for real needs a
+  # release that genuinely hangs release_handler's suspend step.
+  #
+  # RelupDemo.StuckWorker (fixtures/stuck-worker branch, NOT main) casts
+  # itself a message in init/1 whose handler does a bare
+  # `receive after :infinity`: gen_server only answers :sys system
+  # messages (like the suspend request release_handler sends before a
+  # code_change) BETWEEN callback invocations, not while one is still
+  # running, so a callback that never returns blocks suspend forever.
+  # The generated appup for it is {update, StuckWorker, {advanced, []},
+  # []}, not a plain load_module - systools really does try to suspend
+  # it, not just reload its code.
+  #
+  # old-ref/new-ref are two sequential commits on fixtures/stuck-worker,
+  # not main: main's own HEAD-tracking jobs above would see this module
+  # too if it lived there, and a hang landing on main even transiently
+  # would break the whole self-test rather than just adding a warning the
+  # way Worker2 does. actions/checkout's own fetch-depth: 0 fetches every
+  # branch and tag, not just the triggering ref's history, so this job
+  # can still resolve that branch's commits from a checkout of main.
+  self-test-upgrade-timeout-fails:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20.5"
+
+      - name: relup-guard (expected to fail - StuckWorker can never acknowledge suspend)
+        id: relup-guard
+        continue-on-error: true
+        uses: ./
+        with:
+          old-ref: 0ccfb38fdee8da7a7dc71ef06b41ec328a3e92b1 # fixtures/stuck-worker: StuckWorker already stuck
+          new-ref: 7dcd2bdff62764445d4463e7cd5723055818bfb9 # fixtures/stuck-worker: StuckWorker's code changed
+          release-name: relup_demo
+          working-directory: fixtures/demo_app
+          upgrade-timeout-seconds: "10"
+
+      - name: Assert it actually failed
+        if: steps.relup-guard.outcome != 'failure'
+        run: |
+          echo "::error::relup-guard was expected to fail (StuckWorker can never acknowledge the suspend request, so the upgrade can only time out), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          exit 1
