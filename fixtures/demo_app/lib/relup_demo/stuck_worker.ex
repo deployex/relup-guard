@@ -35,4 +35,10 @@ defmodule RelupDemo.StuckWorker do
 
     {:noreply, state}
   end
+
+  # Only exists to force a real code difference against v1, so the
+  # appup generator has something to actually diff - without this, v2
+  # would be byte-for-byte identical and no update instruction (hence no
+  # suspend attempt) would be generated at all.
+  def version, do: 2
 end
