@@ -1,6 +1,6 @@
 # relup-guard-elixir
 
-CI action that verifies Erlang/Elixir hot code upgrades actually work, by building old and new releases and running a real relup before you merge.
+CI action that verifies Elixir hot code upgrades actually work, by building old and new Mix releases and running a real relup before you merge.
 
 ## Why
 
