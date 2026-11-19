@@ -69,7 +69,7 @@ jobs:
 
   # Every job above only ever asserts success. old-ref and new-ref
   # identical can't possibly produce two different versions to relup
-  # between, so relup-guard must refuse to proceed - asserted here with
+  # between, so relup-guard-elixir must refuse to proceed - asserted here with
   # continue-on-error plus a follow-up step that fails the job if it
   # unexpectedly didn't.
   self-test-identical-refs-fail:
@@ -85,8 +85,8 @@ jobs:
           otp-version: "29"
           elixir-version: "1.20.5"
 
-      - name: relup-guard (expected to fail - old-ref and new-ref are identical)
-        id: relup-guard
+      - name: relup-guard-elixir (expected to fail - old-ref and new-ref are identical)
+        id: relup-guard-elixir
         continue-on-error: true
         uses: ./
         with:
@@ -96,9 +96,9 @@ jobs:
           working-directory: fixtures/demo_app
 
       - name: Assert it actually failed
-        if: steps.relup-guard.outcome != 'failure'
+        if: steps.relup-guard-elixir.outcome != 'failure'
         run: |
-          echo "::error::relup-guard was expected to fail (old-ref and new-ref are identical, so there's no second version to relup against), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          echo "::error::relup-guard-elixir was expected to fail (old-ref and new-ref are identical, so there's no second version to relup against), but its outcome was '${{ steps.relup-guard-elixir.outcome }}' instead."
           exit 1
 
   # Another negative test: an unresolvable ref (most commonly a checkout
@@ -114,8 +114,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: relup-guard (expected to fail - old-ref does not exist)
-        id: relup-guard
+      - name: relup-guard-elixir (expected to fail - old-ref does not exist)
+        id: relup-guard-elixir
         continue-on-error: true
         uses: ./
         with:
@@ -124,9 +124,9 @@ jobs:
           working-directory: fixtures/demo_app
 
       - name: Assert it actually failed
-        if: steps.relup-guard.outcome != 'failure'
+        if: steps.relup-guard-elixir.outcome != 'failure'
         run: |
-          echo "::error::relup-guard was expected to fail (old-ref doesn't resolve to any commit), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          echo "::error::relup-guard-elixir was expected to fail (old-ref doesn't resolve to any commit), but its outcome was '${{ steps.relup-guard-elixir.outcome }}' instead."
           exit 1
 
   # boot-timeout-seconds: "0" is a deterministic way to force this
@@ -148,8 +148,8 @@ jobs:
           otp-version: "29"
           elixir-version: "1.20.5"
 
-      - name: relup-guard (expected to fail - boot-timeout-seconds is 0)
-        id: relup-guard
+      - name: relup-guard-elixir (expected to fail - boot-timeout-seconds is 0)
+        id: relup-guard-elixir
         continue-on-error: true
         uses: ./
         with:
@@ -160,9 +160,9 @@ jobs:
           boot-timeout-seconds: "0"
 
       - name: Assert it actually failed
-        if: steps.relup-guard.outcome != 'failure'
+        if: steps.relup-guard-elixir.outcome != 'failure'
         run: |
-          echo "::error::relup-guard was expected to fail (boot-timeout-seconds: 0 can never observe the release boot in time), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          echo "::error::relup-guard-elixir was expected to fail (boot-timeout-seconds: 0 can never observe the release boot in time), but its outcome was '${{ steps.relup-guard-elixir.outcome }}' instead."
           exit 1
 
   # fixtures/demo_app's RelupDemo.Worker2 is a second supervisor child
@@ -219,8 +219,8 @@ jobs:
           otp-version: "29"
           elixir-version: "1.20.5"
 
-      - name: relup-guard (expected to fail - fail-on-relup-warnings is true)
-        id: relup-guard
+      - name: relup-guard-elixir (expected to fail - fail-on-relup-warnings is true)
+        id: relup-guard-elixir
         continue-on-error: true
         uses: ./
         with:
@@ -231,9 +231,9 @@ jobs:
           fail-on-relup-warnings: "true"
 
       - name: Assert it actually failed
-        if: steps.relup-guard.outcome != 'failure'
+        if: steps.relup-guard-elixir.outcome != 'failure'
         run: |
-          echo "::error::relup-guard was expected to fail (fail-on-relup-warnings: true turns the unstarted-module warning into a failure), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          echo "::error::relup-guard-elixir was expected to fail (fail-on-relup-warnings: true turns the unstarted-module warning into a failure), but its outcome was '${{ steps.relup-guard-elixir.outcome }}' instead."
           exit 1
 
   # upgrade-timeout-seconds has no input-value trick like
@@ -272,8 +272,8 @@ jobs:
           otp-version: "29"
           elixir-version: "1.20.5"
 
-      - name: relup-guard (expected to fail - StuckWorker can never acknowledge suspend)
-        id: relup-guard
+      - name: relup-guard-elixir (expected to fail - StuckWorker can never acknowledge suspend)
+        id: relup-guard-elixir
         continue-on-error: true
         uses: ./
         with:
@@ -284,7 +284,7 @@ jobs:
           upgrade-timeout-seconds: "10"
 
       - name: Assert it actually failed
-        if: steps.relup-guard.outcome != 'failure'
+        if: steps.relup-guard-elixir.outcome != 'failure'
         run: |
-          echo "::error::relup-guard was expected to fail (StuckWorker can never acknowledge the suspend request, so the upgrade can only time out), but its outcome was '${{ steps.relup-guard.outcome }}' instead."
+          echo "::error::relup-guard-elixir was expected to fail (StuckWorker can never acknowledge the suspend request, so the upgrade can only time out), but its outcome was '${{ steps.relup-guard-elixir.outcome }}' instead."
           exit 1

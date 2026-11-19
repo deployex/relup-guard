@@ -26,7 +26,7 @@ case "$OUTCOME" in
 esac
 
 {
-  echo "### relup-guard"
+  echo "### relup-guard-elixir"
   echo
   echo "| | ref | version |"
   echo "|---|---|---|"
