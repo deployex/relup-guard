@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- `patch-version.sh` now appends a short, build-only suffix derived from each ref's own commit SHA to every `version:` found across the project's `mix.exs` files, before each build.
+  A relup needs two distinct application versions to generate anything against - OTP's relup/appup mechanism is keyed on each app's own version, not on whether the underlying code actually changed - so a PR that changes code without also bumping a version by hand now still gets a real relup generated and tested, instead of the hard failure this previously required.
+  A `version:` that isn't a plain string literal (a module attribute, or a call like a shared `Mix.Shared.version()` helper) is resolved to wherever its own literal actually lives and patched there once, deduplicated across every caller.
+  `old-ref` and `new-ref` resolving to the exact same commit is still treated as an error, since that genuinely has no second version to relup against.
+
 ## 1.0.0
 
 ### Added
