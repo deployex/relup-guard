@@ -15,15 +15,19 @@ MIX_ENV_VALUE="$3"
 BUILD_COMMAND="${4:-mix deps.get && mix release}"
 EXCLUDE_TARBALL="${5:-}"
 WORKING_DIRECTORY="${6:-.}"
+SUFFIX="${REF:0:12}"
+
+# Sourced, not run as its own process, and BEFORE the checkout below -
+# see patch-version.sh's own top comment for why.
+# shellcheck source=patch-version.sh
+source "$(dirname "${BASH_SOURCE[0]}")/patch-version.sh"
 
 git checkout --force "$REF"
 
 # Appends a build-only suffix to every Mix app's version this project
 # defines, so a relup has something real to diff even when nobody
-# bumped a version by hand for this change - see patch-version.sh for
-# why this has to happen now, before the build, rather than reactively
-# after the fact.
-"$(dirname "${BASH_SOURCE[0]}")/patch-version.sh" "$REF" "$WORKING_DIRECTORY"
+# bumped a version by hand for this change.
+patch_mix_versions
 
 cd "$WORKING_DIRECTORY" || exit 1
 export MIX_ENV="$MIX_ENV_VALUE"

@@ -12,10 +12,24 @@ set -euo pipefail
 # to the same version: by the time that would be noticed, the in-place
 # rebuild has already overwritten old-ref's own _build/<env>/rel/<name>/
 # tree, with nothing left to diff against.
-REF="$1"
-WORKING_DIRECTORY="${2:-.}"
-
-SUFFIX="${REF:0:12}"
+#
+# build-release.sh sources this file - rather than executing it as a
+# separate process - specifically so it can do so BEFORE its own
+# `git checkout --force "$REF"`. This repo's own CI builds its fixture
+# app from inside this same repository (old-ref/new-ref are commits in
+# relup-guard-elixir's own history, not a separate consumer repo's), so
+# checking out an old-ref that predates this file would otherwise
+# delete it from disk before a later, separate `patch-version.sh`
+# process invocation could even start - a real consumer never hits
+# this, since its own checkout never touches the action's own files,
+# which live under a separate, already-resolved action_path.
+#
+# REF, WORKING_DIRECTORY, and SUFFIX are build-release.sh's own
+# variables, already set by the time it sources this file - defining
+# the function below against them here, rather than re-declaring them
+# as this script's own positional parameters, is what makes sourcing
+# before the checkout equivalent to running this as its own process
+# after it.
 
 # A plain recursive search for mix.exs covers a single app (just the
 # root mix.exs) and an umbrella (the root umbrella mix.exs, which a
@@ -127,5 +141,3 @@ patch_mix_versions() {
     \( -path '*/_build' -o -path '*/deps' -o -path '*/.git' \) -prune \
     -o -name 'mix.exs' -print0)
 }
-
-patch_mix_versions
