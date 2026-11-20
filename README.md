@@ -207,6 +207,8 @@ make release VERSION=1.0.0
 
 Tags the current commit `v1.0.0`, moves the floating `v1` tag to point at it too, and pushes both - the same convention `actions/checkout` and most of the GitHub Actions ecosystem use, so a consumer pinned to `@v1` picks up new `v1.x.y` releases automatically.
 
+The same thing is also available as a manual GitHub Actions workflow (`.github/workflows/release.yml`), for releasing without a local checkout: open the **Actions** tab, select **Release**, click **Run workflow**, pick `main` as the branch, and enter the version. It runs the same `make release` target, so the two stay in sync by construction rather than needing to be kept consistent by hand.
+
 ## References
 
 - [`ferd/dandelion`](https://github.com/ferd/dandelion) - reference implementation of Erlang hot upgrades in containers, running an equivalent check on every pull request using `rebar3`/`relx`.
