@@ -2,6 +2,9 @@
 
 CI action that verifies Elixir hot code upgrades actually work, by building old and new Mix releases and running a real relup before you merge.
 
+Sibling project to [relup-guard-erlang](https://github.com/deployex/relup-guard-erlang), which does the same thing for rebar3/relx releases.
+The two are kept separate rather than merged into one action, because rebar3/relx and Mix differ enough in where a release's tarball lands, how its appup gets generated, and what its boot script's subcommands do, that branching one action's logic by build tool would cost more than it saves.
+
 ## Why
 
 A release can build cleanly and still fail to hot-upgrade: a missing appup, a `code_change/3` that doesn't match the new state shape, a dependency bump with no upgrade instructions.
@@ -9,6 +12,23 @@ Most CI pipelines only check that a release *builds*.
 They never check that an upgrade into it actually *applies* against a live node.
 `relup-guard-elixir` closes that gap: it builds the release at your PR's base ref and at its head in the same working directory (so Mix appup tooling can see both), boots the old release, and drives the same sequence a real deploy does - unpack, synthesize the relup, `check_install_release`, `install_release`, `make_permanent` - against it.
 If any step fails, the PR fails, before the broken upgrade ever reaches production.
+
+```mermaid
+flowchart TB
+    subgraph build["Build both releases (sequentially, same working directory)"]
+        A["old-ref"] --> A1["mix release<br/>+ build-only version suffix"]
+        B["new-ref"] --> B1["mix release<br/>+ build-only version suffix<br/>+ generate .appup vs old"]
+    end
+
+    A1 --> C["Boot old release<br/>as an isolated daemon"]
+    B1 --> D["Unpack new release<br/>into the running node"]
+    C --> D
+    D --> E["Synthesize the relup<br/>systools:make_relup/4"]
+    E --> F["Apply it for real<br/>check_install_release → install_release → make_permanent"]
+    F --> G{"New version running?<br/>Same OS pid?"}
+    G -->|yes| H["✅ Pass"]
+    G -->|no / timeout| I["❌ Fail"]
+```
 
 ## Prerequisites
 
@@ -172,7 +192,7 @@ If the schema needs to exist before the release will boot (rather than being cre
 ## What this does not do (yet)
 
 - **Erlang/rebar3 releases.**
-  Deliberately out of scope, not just "not yet implemented": where a tarball lands, what a boot script's subcommands are called, and how appup/relup generation works all differ enough from Mix that supporting both well would mean branching most of this logic by build tool, for audiences that barely overlap. [`ferd/dandelion`](https://github.com/ferd/dandelion) (see References) already does this for rebar3/relx, proven and working - a rebar3 equivalent of this action would sensibly be modeled directly on its `relup-ci.yml`, as its own small, separate project, rather than grafted onto this one.
+  Deliberately out of scope for this action specifically, not a gap overall: where a tarball lands, what a boot script's subcommands are called, and how appup/relup generation works all differ enough from Mix that supporting both well would mean branching most of this logic by build tool, for audiences that barely overlap. [`relup-guard-erlang`](https://github.com/deployex/relup-guard-erlang) is that rebar3/relx equivalent, as its own small, separate project rather than grafted onto this one.
 - **Version-bump convention enforcement.**
   Since relup-guard-elixir appends its own build-only suffix regardless of whether a version was bumped by hand, v1 has no opinion on whether a real version bump happened at all, or whether its size matched the change (a Smoothver-style `RESTART.RELUP.RELOAD` scheme, for example).
   That can be layered on top later as an optional check.
