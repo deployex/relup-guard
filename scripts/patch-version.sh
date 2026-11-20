@@ -31,6 +31,7 @@ SUFFIX="${REF:0:12}"
 # override for a specific release, and both need the same suffix.
 patch_mix_versions() {
   local f line rhs literal helper_match helper_file helper_literal
+  local attr_name attr_match attr_literal
 
   while IFS= read -r -d '' f; do
     while IFS= read -r line; do
@@ -57,8 +58,34 @@ patch_mix_versions() {
           # own pass through this same loop when that app's mix.exs is
           # visited - nothing to do here.
           ;;
+        @[a-zA-Z_]*)
+          # A module attribute (e.g. `version: @version`, with
+          # `@version "0.2.0"` set earlier in the same module) - look
+          # for where that attribute itself is assigned a literal, in
+          # this same file (module attributes aren't visible outside
+          # the module that sets them, so there's no point searching
+          # elsewhere), and patch that instead.
+          attr_name="${rhs#@}"
+          attr_match="$(grep -E "^\\s*@${attr_name}\\s+\"[^\"]*\"" "$f" | head -1 || true)"
+
+          if [ -z "$attr_match" ]; then
+            echo "::warning::${f} sets version: ${rhs}, but no '@${attr_name} \"...\"' assignment was found in the same file to patch instead - leaving it as-is. If ${rhs} isn't already unique per commit on its own, old-ref and new-ref may collide; the later 'Expected exactly one release tarball' check will catch that if so."
+            continue
+          fi
+
+          attr_literal="$(echo "$attr_match" | grep -oE '"[^"]*"' | tail -1 | tr -d '"')"
+
+          case "$attr_literal" in
+            *+*) ;;
+            *)
+              perl -i -pe "s/(\\@${attr_name}\\s+)\"\\Q${attr_literal}\\E\"/\\1\"${attr_literal}+${SUFFIX}\"/" "$f"
+              echo "Patched ${f}: version ${attr_literal} -> ${attr_literal}+${SUFFIX} (resolved from its own version: ${rhs})"
+              ;;
+          esac
+          ;;
         *)
-          # Not a literal - e.g. a call like Mix.Shared.version(). Find
+          # Not a literal, a module attribute, or a {:from_app, ...}
+          # delegation - e.g. a call like Mix.Shared.version(). Find
           # where that's actually defined (a `def version, do: "..."` -
           # the idiom this repo's own fixtures and reference project
           # use) and patch the literal there instead, once per distinct
@@ -66,12 +93,20 @@ patch_mix_versions() {
           # second and later callers re-read the helper file fresh each
           # time, see it already contains "+" from the first call, and
           # skip it via the same guard as the literal branch above.
-          helper_match="$(grep -rnE 'def[[:space:]]+version(\(\))?,?[[:space:]]*do:?[[:space:]]*"[^"]*"' \
+          #
+          # `|| true` on this grep matters: with no match anywhere (a
+          # version: this script genuinely can't resolve, e.g. one read
+          # from a file at compile time), grep's own exit code is 1,
+          # and piped through further greps under this script's own
+          # `set -euo pipefail`, that would otherwise abort the whole
+          # script right here instead of falling through to the
+          # warning below.
+          helper_match="$( (grep -rnE 'def[[:space:]]+version(\(\))?,?[[:space:]]*do:?[[:space:]]*"[^"]*"' \
             --include='*.ex' --include='*.exs' "$WORKING_DIRECTORY" \
-            2>/dev/null | grep -vE '/(_build|deps)/' | head -1)"
+            2>/dev/null | grep -vE '/(_build|deps)/' | head -1) || true)"
 
           if [ -z "$helper_match" ]; then
-            echo "Notice: ${f} sets version: ${rhs}, which isn't a plain string literal and no 'def version, do: \"...\"' helper was found to patch instead - assuming it's already derived dynamically (e.g. from git describe) and already unique per commit."
+            echo "::warning::${f} sets version: ${rhs}, which isn't a plain string literal, a module attribute, or a {:from_app, ...} delegation, and no 'def version, do: \"...\"' helper was found to patch instead - leaving it as-is. If ${rhs} isn't already unique per commit on its own (e.g. read from a file that itself needs bumping), old-ref and new-ref may collide; the later 'Expected exactly one release tarball' check will catch that if so."
             continue
           fi
 
