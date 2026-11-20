@@ -18,6 +18,13 @@ WORKING_DIRECTORY="${6:-.}"
 
 git checkout --force "$REF"
 
+# Appends a build-only suffix to every Mix app's version this project
+# defines, so a relup has something real to diff even when nobody
+# bumped a version by hand for this change - see patch-version.sh for
+# why this has to happen now, before the build, rather than reactively
+# after the fact.
+"$(dirname "${BASH_SOURCE[0]}")/patch-version.sh" "$REF" "$WORKING_DIRECTORY"
+
 cd "$WORKING_DIRECTORY" || exit 1
 export MIX_ENV="$MIX_ENV_VALUE"
 bash -euo pipefail -c "$BUILD_COMMAND"
@@ -48,7 +55,7 @@ if [ "${#CANDIDATES[@]}" -gt 0 ]; then
 fi
 
 if [ "${#NEW_CANDIDATES[@]}" -ne 1 ]; then
-  echo "::error title=Expected exactly one release tarball::_build/${MIX_ENV_VALUE} for '${RELEASE_NAME}' at ${REF} matched ${#NEW_CANDIDATES[@]} tarball(s): ${NEW_CANDIDATES[*]:-none}. Check that mix.exs releases[:${RELEASE_NAME}][:steps] includes :tar, and that the version was actually bumped."
+  echo "::error title=Expected exactly one release tarball::_build/${MIX_ENV_VALUE} for '${RELEASE_NAME}' at ${REF} matched ${#NEW_CANDIDATES[@]} tarball(s): ${NEW_CANDIDATES[*]:-none}. relup-guard-elixir already appends a build-only, per-commit suffix to every version it found, so this almost always means old-ref and new-ref resolved to the exact same commit - there's nothing to build a second version from. If they're genuinely different commits, check that mix.exs releases[:${RELEASE_NAME}][:steps] includes :tar."
   exit 1
 fi
 
