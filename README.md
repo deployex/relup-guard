@@ -76,6 +76,10 @@ Tags above are pinned to a major version, not a commit SHA: a tag can move to po
 This repository's own `.github/workflows/ci.yml` makes the same choice, paired with a `.github/dependabot.yml` for the `github-actions` ecosystem that opens a PR whenever a pinned major version has a newer release.
 If you'd rather not depend on that - a tag you don't control being trustworthy for as long as you use it - pin to a full commit SHA instead and keep the tag as a trailing comment, e.g. `uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1`.
 
+A newer middle path also exists: GitHub's workflow dependency lockfiles, generally available since October 28, 2026, record each action's resolved commit SHA in a `.github/workflows/actions.lock` file while the `uses:` line itself keeps the tag or branch, so a tag that's later repointed fails the run instead of silently executing different code.
+Dependabot regenerates the lockfile entry in the same PR that bumps the tag, so the ergonomics of pairing Dependabot with a floating tag survive without hand-maintaining SHA comments.
+This repository has not adopted it: generating and enforcing the lockfile needs the separate `gh actions-lock` extension and a per-workflow onboarding step, which felt like more tooling than the current two-action surface (`actions/checkout`, `erlef/setup-beam`) warrants.
+
 ### Booting a release that needs environment variables
 
 If your release reads `System.get_env/1` in `config/runtime.exs` (database URL, secret key base, etc.), set those as `env` on the step that calls `relup-guard-elixir`, not as an `with:` input.
