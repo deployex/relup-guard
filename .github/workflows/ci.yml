@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+# No job here pushes, comments, or uploads anything - every job only
+# checks out the repository and either lints scripts or runs this action
+# against its own fixtures. Without this block, the GITHUB_TOKEN each job
+# gets falls back to the repository/org default, which on older repos is
+# still read-write - an unused privilege a compromised dependency (in a
+# future script or action version) could otherwise abuse. zizmor's
+# excessive-permissions audit and OpenSSF Scorecard's Token-Permissions
+# check both flag a workflow with no explicit permissions block for
+# exactly this reason.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
